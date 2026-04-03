@@ -199,16 +199,16 @@ async function renderCustomers() {
       <div class="card">
         <div class="card-header"><h3>Customers</h3><button type="button" class="btn btn-primary btn-sm" id="add-customer">+ Add</button></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Address</th><th>Contact</th><th>Actions</th></tr></thead>
+          <thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Address</th><th>Contact</th><th class="actions">Actions</th></tr></thead>
           <tbody>${rows.length ? rows.map(c => `
             <tr>
               <td>${c.customer_id}</td><td>${badge(c.customer_type)}</td>
               <td>${escapeHtml(c.business_name || c.first_name + ' ' + c.last_name)}</td>
               <td>${escapeHtml(c.address)}</td><td>${escapeHtml(c.contact)}</td>
-              <td class="actions">
+              <td class="actions"><div class="actions-inner">
                 <button type="button" class="btn btn-secondary btn-sm edit-customer" data-id="${c.customer_id}">Edit</button>
                 <button type="button" class="btn btn-danger btn-sm del-customer" data-id="${c.customer_id}">Delete</button>
-              </td>
+              </div></td>
             </tr>`).join('') : '<tr><td colspan="6" class="empty-state">No customers — add one or import SQL</td></tr>'}
           </tbody>
         </table></div>
@@ -257,15 +257,15 @@ async function renderDrivers() {
       <div class="card">
         <div class="card-header"><h3>Drivers</h3><button type="button" class="btn btn-primary btn-sm" id="add-driver">+ Add</button></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>ID</th><th>Name</th><th>License</th><th>Contact</th><th>Actions</th></tr></thead>
+          <thead><tr><th>ID</th><th>Name</th><th>License</th><th>Contact</th><th class="actions">Actions</th></tr></thead>
           <tbody>${rows.length ? rows.map(d => `
             <tr>
               <td>${d.driver_id}</td><td>${escapeHtml(d.first_name + ' ' + d.last_name)}</td>
               <td>${badge(d.license_type)}</td><td>${escapeHtml(d.contact_driver)}</td>
-              <td class="actions">
+              <td class="actions"><div class="actions-inner">
                 <button type="button" class="btn btn-secondary btn-sm edit-driver" data-id="${d.driver_id}">Edit</button>
                 <button type="button" class="btn btn-danger btn-sm del-driver" data-id="${d.driver_id}">Delete</button>
-              </td>
+              </div></td>
             </tr>`).join('') : '<tr><td colspan="5" class="empty-state">No drivers</td></tr>'}
           </tbody>
         </table></div>
@@ -312,16 +312,16 @@ async function renderTrucks() {
       <div class="card">
         <div class="card-header"><h3>Trucks</h3><button type="button" class="btn btn-primary btn-sm" id="add-truck">+ Add</button></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>ID</th><th>Brand</th><th>Model</th><th>Type</th><th>Plate</th><th>$/hr</th><th>$/km</th><th>Actions</th></tr></thead>
+          <thead><tr><th>ID</th><th>Brand</th><th>Model</th><th>Type</th><th>Plate</th><th>$/hr</th><th>$/km</th><th class="actions">Actions</th></tr></thead>
           <tbody>${rows.length ? rows.map(t => `
             <tr>
               <td>${t.truck_id}</td><td>${escapeHtml(t.brand)}</td><td>${escapeHtml(t.model)}</td>
               <td>${badge(t.truck_type)}</td><td>${escapeHtml(t.license_plate)}</td>
               <td>${fmtMoney(t.rate_per_hour)}</td><td>${fmtMoney(t.rate_per_km)}</td>
-              <td class="actions">
+              <td class="actions"><div class="actions-inner">
                 <button type="button" class="btn btn-secondary btn-sm edit-truck" data-id="${t.truck_id}">Edit</button>
                 <button type="button" class="btn btn-danger btn-sm del-truck" data-id="${t.truck_id}">Delete</button>
-              </td>
+              </div></td>
             </tr>`).join('') : '<tr><td colspan="8" class="empty-state">No trucks</td></tr>'}
           </tbody>
         </table></div>
@@ -373,14 +373,14 @@ async function renderReservations() {
       <div class="card">
         <div class="card-header"><h3>Reservations</h3><button type="button" class="btn btn-primary btn-sm" id="add-res">+ Add</button></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>ID</th><th>Customer</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>ID</th><th>Customer</th><th>Date</th><th>Status</th><th class="actions">Actions</th></tr></thead>
           <tbody>${rows.length ? rows.map(r => `
             <tr>
               <td>${r.reservation_id}</td><td>${escapeHtml(r.customer_name)}</td><td>${fmtDate(r.reservation_date)}</td><td>${badge(r.status)}</td>
-              <td class="actions">
+              <td class="actions"><div class="actions-inner">
                 <button type="button" class="btn btn-secondary btn-sm edit-res" data-id="${r.reservation_id}">Edit</button>
                 <button type="button" class="btn btn-danger btn-sm del-res" data-id="${r.reservation_id}">Delete</button>
-              </td>
+              </div></td>
             </tr>`).join('') : '<tr><td colspan="5" class="empty-state">No reservations</td></tr>'}
           </tbody>
         </table></div>
@@ -441,17 +441,17 @@ async function renderMissions() {
       <div class="card">
         <div class="card-header"><h3>Missions</h3><button type="button" class="btn btn-primary btn-sm" id="add-mission">+ Add</button></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>ID</th><th>Res#</th><th>Driver</th><th>Truck</th><th>Location</th><th>Start</th><th>End</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>ID</th><th>Res#</th><th>Driver</th><th>Truck</th><th>Location</th><th>Start</th><th>End</th><th>Status</th><th class="actions">Actions</th></tr></thead>
           <tbody>${rows.length ? rows.map(m => `
             <tr>
               <td>${m.mission_id}</td><td>${m.reservation_id}</td><td>${escapeHtml(m.driver_name)}</td><td>${escapeHtml(m.truck_name)}</td>
               <td>${escapeHtml(truncLoc(m.rendezvous_place, 40))}</td>
               <td>${fmtDateTime(m.planned_start)}</td><td>${fmtDateTime(m.planned_end)}</td><td>${badge(m.status)}</td>
-              <td class="actions">
+              <td class="actions"><div class="actions-inner">
                 <button type="button" class="btn btn-secondary btn-sm edit-mission" data-id="${m.mission_id}">Edit</button>
                 ${m.status !== 'Cancelled' ? `<button type="button" class="btn btn-warn btn-sm cancel-mission" data-id="${m.mission_id}">Cancel</button>` : ''}
                 <button type="button" class="btn btn-danger btn-sm del-mission" data-id="${m.mission_id}">Delete</button>
-              </td>
+              </div></td>
             </tr>`).join('') : '<tr><td colspan="9" class="empty-state">No missions</td></tr>'}
           </tbody>
         </table></div>
@@ -535,17 +535,17 @@ async function renderInvoices() {
       <div class="card">
         <div class="card-header"><h3>Invoices</h3><button type="button" class="btn btn-primary btn-sm" id="add-invoice">+ Add</button></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>ID</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th>Method</th><th>Actions</th></tr></thead>
+          <thead><tr><th>ID</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th>Method</th><th class="actions">Actions</th></tr></thead>
           <tbody>${rows.length ? rows.map(i => `
             <tr>
               <td>${i.invoice_id}</td><td>${escapeHtml(i.customer_name)}</td><td>${fmtDate(i.invoice_date)}</td>
               <td>${fmtMoney(i.total_amount)}</td><td>${badge(i.payment_status)}</td><td>${escapeHtml(i.payment_method || '-')}</td>
-              <td class="actions">
+              <td class="actions"><div class="actions-inner">
                 <button type="button" class="btn btn-secondary btn-sm view-lines" data-id="${i.invoice_id}">Lines</button>
                 ${i.payment_status === 'Unpaid' ? `<button type="button" class="btn btn-success btn-sm pay-inv" data-id="${i.invoice_id}">Pay</button>` : ''}
                 <button type="button" class="btn btn-secondary btn-sm edit-invoice" data-id="${i.invoice_id}">Edit</button>
                 <button type="button" class="btn btn-danger btn-sm del-invoice" data-id="${i.invoice_id}">Delete</button>
-              </td>
+              </div></td>
             </tr>`).join('') : '<tr><td colspan="7" class="empty-state">No invoices</td></tr>'}
           </tbody>
         </table></div>

@@ -225,7 +225,20 @@ tr:hover { background: #f8f9fd; }
 
 .btn-icon:hover { color: var(--text); }
 
-.actions { display: flex; gap: 6px; }
+/* Flex on <td> breaks table column alignment; wrap buttons in .actions-inner */
+th.actions,
+td.actions {
+  text-align: right;
+  vertical-align: middle;
+}
+
+.actions-inner {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
 
 /* Badges */
 .badge {
