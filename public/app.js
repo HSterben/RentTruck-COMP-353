@@ -4,7 +4,7 @@ const $$ = (sel) => document.querySelectorAll(sel);
 
 let currentPage = 'dashboard';
 
-// Fetch JSON; throws on HTTP error or { error: "..." } in body
+//* Calls the backend API, server reads/writes MySQL and returns JSON. Throws error if HTTP fails or body has error msg.
 async function apiJson(url, method = 'GET', body = null) {
   const opts = { method, headers: {} };
   if (body !== null) {
@@ -19,6 +19,7 @@ async function apiJson(url, method = 'GET', body = null) {
   return data;
 }
 
+//* Need this for app to work -> its a safe check for text for the HTML (names/addresses can include <>&).
 function escapeHtml(s) {
   if (s == null) return '';
   const d = document.createElement('div');
@@ -26,6 +27,7 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+//* Short popup message after CRUD.
 function toast(msg) {
   const t = $('#toast');
   t.textContent = msg;
@@ -33,10 +35,12 @@ function toast(msg) {
   setTimeout(() => t.classList.add('hidden'), 3200);
 }
 
+//* Loading thing while each page takes data from the API.
 function showLoading() {
   $('#content').innerHTML = '<div class="card"><p class="empty-state">Loading...</p></div>';
 }
 
+//* Fail when fetch/API errors (maybe DB not configured).
 function renderError(message, page) {
   const p = page || currentPage;
   $('#content').innerHTML = `
@@ -49,27 +53,8 @@ function renderError(message, page) {
   $('#retry-page').onclick = () => navigate(p);
 }
 
-async function pingHealth() {
-  const el = $('#conn-status');
-  if (!el) return;
-  el.textContent = '...';
-  el.className = 'conn-status checking';
-  try {
-    const h = await fetch(API + '/api/health');
-    const j = await h.json().catch(() => ({}));
-    if (h.ok && j.ok) {
-      el.textContent = 'DB OK';
-      el.className = 'conn-status ok';
-    } else {
-      el.textContent = 'DB error';
-      el.className = 'conn-status bad';
-    }
-  } catch {
-    el.textContent = 'Offline';
-    el.className = 'conn-status bad';
-  }
-}
 
+//* show form and saves on submit
 function openModal(title, fields, onSave) {
   $('#modal-title').textContent = title;
   const form = $('#modal-form');
@@ -112,6 +97,7 @@ $('#modal-overlay').onclick = (e) => {
   if (e.target === $('#modal-overlay')) closeModal();
 };
 
+//* status badges for the data values (like mission status, payment, license type).
 function badge(val) {
   const cls = {
     Active: 'badge-active', Completed: 'badge-completed', Paid: 'badge-paid',
@@ -123,6 +109,7 @@ function badge(val) {
   return `<span class="badge ${cls[val] || ''}">${escapeHtml(val)}</span>`;
 }
 
+//* Display for dates and money.
 function fmtDate(d) { return d ? new Date(d).toLocaleDateString() : '-'; }
 function fmtDateTime(d) { return d ? new Date(d).toLocaleString() : '-'; }
 function fmtMoney(v) { return v != null ? `$${Number(v).toFixed(2)}` : '-'; }
@@ -144,14 +131,16 @@ function fmtDT(d) {
   }
 }
 
+//* Empty form fields transformed to null for optional values.
 function toNumOrNull(v) {
   if (v === '' || v == null) return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
 
-// ========================= PAGES =========================
+//? ========================= PAGES =========================
 
+//* Dashboard get the counts from all tables + last few missions.
 async function renderDashboard() {
   showLoading();
   try {
@@ -191,6 +180,7 @@ async function renderDashboard() {
   }
 }
 
+//* Customers list -> add/edit/delete frontend -> backend calls /api/customers.
 async function renderCustomers() {
   showLoading();
   try {
@@ -229,6 +219,7 @@ async function renderCustomers() {
   }
 }
 
+//* Create or update a customer row.
 function customerForm(c = null) {
   openModal(c ? 'Edit customer' : 'New customer', [
     { name: 'customer_type', label: 'Type', type: 'select', value: c?.customer_type || 'Individual',
@@ -249,6 +240,7 @@ function customerForm(c = null) {
   });
 }
 
+//* Drivers CRUD calling /api/drivers.
 async function renderDrivers() {
   showLoading();
   try {
@@ -286,6 +278,7 @@ async function renderDrivers() {
   }
 }
 
+//* new/edit driver calling POST or PUT /api/drivers.
 function driverForm(d = null) {
   openModal(d ? 'Edit driver' : 'New driver', [
     { name: 'first_name', label: 'First name', value: d?.first_name, required: true },
@@ -304,6 +297,7 @@ function driverForm(d = null) {
   });
 }
 
+//* Trucks CRUD calling /api/trucks.
 async function renderTrucks() {
   showLoading();
   try {
@@ -342,6 +336,7 @@ async function renderTrucks() {
   }
 }
 
+//* new/edit truck calling POST or PUT /api/trucks.
 function truckForm(t = null) {
   openModal(t ? 'Edit truck' : 'New truck', [
     { name: 'brand', label: 'Brand', value: t?.brand, required: true },
@@ -360,6 +355,7 @@ function truckForm(t = null) {
   });
 }
 
+//* Reservations needs customers -> so API joins customer name on list -> frontend displays.
 async function renderReservations() {
   showLoading();
   try {
@@ -401,6 +397,7 @@ async function renderReservations() {
   }
 }
 
+//* Book reservation (customer + date + status).
 function resForm(r = null, custOpts) {
   if (!custOpts.length) {
     toast('Add a customer first');
@@ -423,6 +420,7 @@ function resForm(r = null, custOpts) {
   });
 }
 
+//* Joined mission data -> frontend displays.
 async function renderMissions() {
   showLoading();
   try {
@@ -486,6 +484,7 @@ async function renderMissions() {
   }
 }
 
+//* reservation, truck, driver, times, odometer, status -> calling /api/missions.
 function missionForm(m = null, resOpts, truckOpts, driverOpts) {
   const typeOpts = [{ value: 'Tourism', label: 'Tourism' }, { value: 'Heavyweight', label: 'Heavyweight' }, { value: 'Super Heavyweight', label: 'Super Heavyweight' }];
   const statusOpts = [{ value: 'Scheduled', label: 'Scheduled' }, { value: 'Ongoing', label: 'Ongoing' }, { value: 'Completed', label: 'Completed' }, { value: 'Cancelled', label: 'Cancelled' }];
@@ -522,6 +521,7 @@ function missionForm(m = null, resOpts, truckOpts, driverOpts) {
   });
 }
 
+//* Invoices table + Pay (extra calls per invoice to the backend API).
 async function renderInvoices() {
   showLoading();
   try {
@@ -569,6 +569,7 @@ async function renderInvoices() {
   }
 }
 
+//* invoice header (customer, amounts, payment fields).
 function invoiceForm(i = null, custOpts) {
   if (!custOpts.length) {
     toast('Add a customer first');
@@ -601,6 +602,7 @@ function invoiceForm(i = null, custOpts) {
   });
 }
 
+//* Quick pay flow -> PUT /api/invoices/:id/pay sets paid status.
 function payInvoice(id) {
   openModal('Pay invoice #' + id, [
     { name: 'payment_method', label: 'Payment method', type: 'select', value: 'Credit Card',
@@ -614,6 +616,7 @@ function payInvoice(id) {
   });
 }
 
+//* Fetch invoice line parts (missions/charges) and adds a second card below the table.
 async function viewLines(invoiceId) {
   const el = $('#invoice-lines');
   try {
@@ -639,6 +642,7 @@ async function viewLines(invoiceId) {
   }
 }
 
+//* demo SQL queries -> read-only.
 const QUERIES = [
   { id: 'a', title: 'Business customers', desc: 'Business-type customers' },
   { id: 'b', title: 'Reservations > 1', desc: 'Reservation id greater than 1' },
@@ -653,6 +657,7 @@ const QUERIES = [
   { id: 'k', title: 'Cancel mission (transaction)', desc: 'Use Cancel on Missions' },
 ];
 
+//* UI to pick one of the many queries we have -> running a query fetches rows and builds the table itself.
 function renderQueries() {
   $('#content').innerHTML = `
     <div class="query-grid">
@@ -673,6 +678,7 @@ function renderQueries() {
   });
 }
 
+//* redirect to Missions for assignment demo -> others hit /api/queries/:id.
 async function runQuery(id) {
   const el = $('#query-result');
   if (id === 'j') {
@@ -714,6 +720,7 @@ async function runQuery(id) {
   }
 }
 
+//* Sidebar routes
 const pages = {
   dashboard: { title: 'Dashboard', render: renderDashboard },
   customers: { title: 'Customers', render: renderCustomers },
