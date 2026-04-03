@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RENTRUCK Inc.</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="logo">
+      <span class="logo-icon">&#9951;</span>
+      <span>RENTRUCK</span>
+    </div>
+    <nav>
+      <a href="#" class="nav-link active" data-page="dashboard">
+        <span class="nav-icon">&#9632;</span> Dashboard
+      </a>
+      <a href="#" class="nav-link" data-page="customers">
+        <span class="nav-icon">&#9679;</span> Customers
+      </a>
+      <a href="#" class="nav-link" data-page="drivers">
+        <span class="nav-icon">&#9679;</span> Drivers
+      </a>
+      <a href="#" class="nav-link" data-page="trucks">
+        <span class="nav-icon">&#9679;</span> Trucks
+      </a>
+      <a href="#" class="nav-link" data-page="reservations">
+        <span class="nav-icon">&#9679;</span> Reservations
+      </a>
+      <a href="#" class="nav-link" data-page="missions">
+        <span class="nav-icon">&#9679;</span> Missions
+      </a>
+      <a href="#" class="nav-link" data-page="invoices">
+        <span class="nav-icon">&#9679;</span> Invoices
+      </a>
+      <div class="nav-divider"></div>
+      <a href="#" class="nav-link" data-page="queries">
+        <span class="nav-icon">&#9733;</span> Queries
+      </a>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <h1 id="page-title">Dashboard</h1>
+    </header>
+    <div id="content" class="content"></div>
+  </main>
+
+  <!-- Modal -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modal-title">Form</h2>
+        <button id="modal-close" class="btn-icon">&times;</button>
+      </div>
+      <form id="modal-form" class="modal-body"></form>
+      <div class="modal-footer">
+        <button type="button" id="modal-cancel" class="btn btn-secondary">Cancel</button>
+        <button type="button" id="modal-save" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

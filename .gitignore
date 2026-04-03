@@ -1,0 +1,21 @@
+# deps
+node_modules/
+
+# env (copy .env.example to .env)
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
