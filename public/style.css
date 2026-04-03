@@ -88,9 +88,29 @@ body {
   position: sticky;
   top: 0;
   z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .topbar h1 { font-size: 1.3rem; font-weight: 600; }
+
+.conn-status {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.conn-status.checking { background: var(--bg); color: var(--text-muted); }
+.conn-status.ok { background: #e8faf0; color: #1d8348; }
+.conn-status.bad { background: #fde8ea; color: #a12a3a; }
+
+.error-card h3 { margin-bottom: 10px; }
+.error-card .hint { margin-top: 12px; font-size: 0.88rem; color: var(--text-muted); line-height: 1.5; }
+.error-card code { font-size: 0.85em; background: var(--bg); padding: 2px 6px; border-radius: 4px; }
+.err-text { color: var(--danger); }
 
 .content { padding: 24px 28px; flex: 1; }
 
@@ -299,6 +319,10 @@ tr:hover { background: #f8f9fd; }
 }
 
 .query-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);

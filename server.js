@@ -9,26 +9,45 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// DB pool
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASS || '',
   database: process.env.DB_NAME || 'test_db',
-  port: process.env.DB_PORT || 3306,
+  port: Number(process.env.DB_PORT) || 3306,
   waitForConnections: true,
   connectionLimit: 10
 });
 
-// Helper
 const query = async (sql, params) => {
   const [rows] = await pool.execute(sql, params || []);
   return rows;
 };
 
+// MySQL DATETIME from browser datetime-local or string
+function toMysqlDateTime(v) {
+  if (v == null || v === '') return null;
+  const s = String(v).trim();
+  if (s.includes('T')) {
+    const [d, t] = s.split('T');
+    const time = t && t.length === 5 ? `${t}:00` : t;
+    return `${d} ${time || '00:00:00'}`;
+  }
+  return s;
+}
+
+// DB ping
+app.get('/api/health', async (req, res) => {
+  try {
+    await query('SELECT 1 AS ok');
+    res.json({ ok: true, database: process.env.DB_NAME || 'test_db' });
+  } catch (e) {
+    res.status(503).json({ ok: false, error: e.message });
+  }
+});
+
 // ==================== CUSTOMERS ====================
 
-// Read all
 app.get('/api/customers', async (req, res) => {
   try {
     const rows = await query('SELECT * FROM Customer ORDER BY customer_id');
@@ -36,7 +55,6 @@ app.get('/api/customers', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Read one
 app.get('/api/customers/:id', async (req, res) => {
   try {
     const rows = await query('SELECT * FROM Customer WHERE customer_id = ?', [req.params.id]);
@@ -44,7 +62,6 @@ app.get('/api/customers/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Create
 app.post('/api/customers', async (req, res) => {
   try {
     const { customer_type, business_name, first_name, last_name, address, contact } = req.body;
@@ -56,7 +73,6 @@ app.post('/api/customers', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Update
 app.put('/api/customers/:id', async (req, res) => {
   try {
     const { customer_type, business_name, first_name, last_name, address, contact } = req.body;
@@ -68,7 +84,6 @@ app.put('/api/customers/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Delete
 app.delete('/api/customers/:id', async (req, res) => {
   try {
     await query('DELETE FROM Customer WHERE customer_id = ?', [req.params.id]);
@@ -78,7 +93,6 @@ app.delete('/api/customers/:id', async (req, res) => {
 
 // ==================== DRIVERS ====================
 
-// Read all
 app.get('/api/drivers', async (req, res) => {
   try {
     const rows = await query('SELECT * FROM Driver ORDER BY driver_id');
@@ -86,7 +100,6 @@ app.get('/api/drivers', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Create
 app.post('/api/drivers', async (req, res) => {
   try {
     const { first_name, last_name, license_type, contact_driver } = req.body;
@@ -98,7 +111,6 @@ app.post('/api/drivers', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Update
 app.put('/api/drivers/:id', async (req, res) => {
   try {
     const { first_name, last_name, license_type, contact_driver } = req.body;
@@ -110,7 +122,6 @@ app.put('/api/drivers/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Delete
 app.delete('/api/drivers/:id', async (req, res) => {
   try {
     await query('DELETE FROM Driver WHERE driver_id = ?', [req.params.id]);
@@ -120,7 +131,6 @@ app.delete('/api/drivers/:id', async (req, res) => {
 
 // ==================== TRUCKS ====================
 
-// Read all
 app.get('/api/trucks', async (req, res) => {
   try {
     const rows = await query(
@@ -132,7 +142,6 @@ app.get('/api/trucks', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Read truck types
 app.get('/api/trucktypes', async (req, res) => {
   try {
     const rows = await query('SELECT * FROM TruckType');
@@ -140,7 +149,6 @@ app.get('/api/trucktypes', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Create truck
 app.post('/api/trucks', async (req, res) => {
   try {
     const { brand, model, truck_type, license_plate } = req.body;
@@ -152,7 +160,6 @@ app.post('/api/trucks', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Update truck
 app.put('/api/trucks/:id', async (req, res) => {
   try {
     const { brand, model, truck_type, license_plate } = req.body;
@@ -164,7 +171,6 @@ app.put('/api/trucks/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Delete truck
 app.delete('/api/trucks/:id', async (req, res) => {
   try {
     await query('DELETE FROM Truck WHERE truck_id = ?', [req.params.id]);
@@ -174,7 +180,6 @@ app.delete('/api/trucks/:id', async (req, res) => {
 
 // ==================== RESERVATIONS ====================
 
-// Read all
 app.get('/api/reservations', async (req, res) => {
   try {
     const rows = await query(
@@ -188,7 +193,6 @@ app.get('/api/reservations', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Create
 app.post('/api/reservations', async (req, res) => {
   try {
     const { customer_id, reservation_date, status } = req.body;
@@ -200,7 +204,6 @@ app.post('/api/reservations', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Update
 app.put('/api/reservations/:id', async (req, res) => {
   try {
     const { customer_id, reservation_date, status } = req.body;
@@ -212,7 +215,6 @@ app.put('/api/reservations/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Delete
 app.delete('/api/reservations/:id', async (req, res) => {
   try {
     await query('DELETE FROM Reservation WHERE reservation_id = ?', [req.params.id]);
@@ -222,7 +224,6 @@ app.delete('/api/reservations/:id', async (req, res) => {
 
 // ==================== MISSIONS ====================
 
-// Read all
 app.get('/api/missions', async (req, res) => {
   try {
     const rows = await query(
@@ -239,40 +240,46 @@ app.get('/api/missions', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Create
 app.post('/api/missions', async (req, res) => {
   try {
-    const { reservation_id, truck_id, driver_id, rendezvous_place, req_truck_type,
-            planned_start, planned_end, actual_start, actual_end,
-            odometer_before, odometer_after, status } = req.body;
+    const b = req.body;
+    const planned_start = toMysqlDateTime(b.planned_start);
+    const planned_end = toMysqlDateTime(b.planned_end);
+    const actual_start = toMysqlDateTime(b.actual_start);
+    const actual_end = toMysqlDateTime(b.actual_end);
+    const ob = b.odometer_before === '' || b.odometer_before == null ? null : Number(b.odometer_before);
+    const oa = b.odometer_after === '' || b.odometer_after == null ? null : Number(b.odometer_after);
     const result = await query(
       `INSERT INTO Mission (reservation_id, truck_id, driver_id, rendezvous_place, req_truck_type,
         planned_start, planned_end, actual_start, actual_end, odometer_before, odometer_after, status)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [reservation_id, truck_id, driver_id, rendezvous_place, req_truck_type,
-       planned_start, planned_end, actual_start || null, actual_end || null,
-       odometer_before || null, odometer_after || null, status || 'Scheduled']
+      [b.reservation_id, b.truck_id, b.driver_id, b.rendezvous_place, b.req_truck_type,
+        planned_start, planned_end, actual_start, actual_end,
+        ob, oa, b.status || 'Scheduled']
     );
     res.json({ id: result.insertId, message: 'Mission created' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Query (j): Update mission details
 app.put('/api/missions/:id', async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { reservation_id, truck_id, driver_id, rendezvous_place, req_truck_type,
-            planned_start, planned_end, actual_start, actual_end,
-            odometer_before, odometer_after, status } = req.body;
+    const b = req.body;
+    const planned_start = toMysqlDateTime(b.planned_start);
+    const planned_end = toMysqlDateTime(b.planned_end);
+    const actual_start = toMysqlDateTime(b.actual_start);
+    const actual_end = toMysqlDateTime(b.actual_end);
+    const ob = b.odometer_before === '' || b.odometer_before == null ? null : Number(b.odometer_before);
+    const oa = b.odometer_after === '' || b.odometer_after == null ? null : Number(b.odometer_after);
     await conn.execute(
       `UPDATE Mission SET reservation_id=?, truck_id=?, driver_id=?, rendezvous_place=?, req_truck_type=?,
         planned_start=?, planned_end=?, actual_start=?, actual_end=?,
         odometer_before=?, odometer_after=?, status=?
        WHERE mission_id=?`,
-      [reservation_id, truck_id, driver_id, rendezvous_place, req_truck_type,
-       planned_start, planned_end, actual_start || null, actual_end || null,
-       odometer_before || null, odometer_after || null, status, req.params.id]
+      [b.reservation_id, b.truck_id, b.driver_id, b.rendezvous_place, b.req_truck_type,
+        planned_start, planned_end, actual_start, actual_end,
+        ob, oa, b.status, req.params.id]
     );
     await conn.commit();
     res.json({ message: 'Mission updated (transaction committed)' });
@@ -282,7 +289,6 @@ app.put('/api/missions/:id', async (req, res) => {
   } finally { conn.release(); }
 });
 
-// Query (k): Cancel mission
 app.put('/api/missions/:id/cancel', async (req, res) => {
   const conn = await pool.getConnection();
   try {
@@ -299,7 +305,6 @@ app.put('/api/missions/:id/cancel', async (req, res) => {
   } finally { conn.release(); }
 });
 
-// Delete
 app.delete('/api/missions/:id', async (req, res) => {
   try {
     await query('DELETE FROM Mission WHERE mission_id = ?', [req.params.id]);
@@ -309,7 +314,6 @@ app.delete('/api/missions/:id', async (req, res) => {
 
 // ==================== INVOICES ====================
 
-// Read all
 app.get('/api/invoices', async (req, res) => {
   try {
     const rows = await query(
@@ -323,7 +327,6 @@ app.get('/api/invoices', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Read invoice lines
 app.get('/api/invoices/:id/lines', async (req, res) => {
   try {
     const rows = await query(
@@ -339,20 +342,19 @@ app.get('/api/invoices/:id/lines', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Create
 app.post('/api/invoices', async (req, res) => {
   try {
     const { customer_id, invoice_date, total_amount, payment_status, payment_method, payment_date } = req.body;
+    const ta = total_amount === '' || total_amount == null ? 0 : Number(total_amount);
     const result = await query(
       `INSERT INTO Invoice (customer_id, invoice_date, total_amount, payment_status, payment_method, payment_date)
        VALUES (?,?,?,?,?,?)`,
-      [customer_id, invoice_date, total_amount || 0, payment_status || 'Unpaid', payment_method || null, payment_date || null]
+      [customer_id, invoice_date, ta, payment_status || 'Unpaid', payment_method || null, payment_date || null]
     );
     res.json({ id: result.insertId, message: 'Invoice created' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Pay invoice
 app.put('/api/invoices/:id/pay', async (req, res) => {
   try {
     const { payment_method } = req.body;
@@ -364,20 +366,19 @@ app.put('/api/invoices/:id/pay', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Update
 app.put('/api/invoices/:id', async (req, res) => {
   try {
     const { customer_id, invoice_date, total_amount, payment_status, payment_method, payment_date } = req.body;
+    const ta = total_amount === '' || total_amount == null ? 0 : Number(total_amount);
     await query(
       `UPDATE Invoice SET customer_id=?, invoice_date=?, total_amount=?, payment_status=?, payment_method=?, payment_date=?
        WHERE invoice_id=?`,
-      [customer_id, invoice_date, total_amount, payment_status, payment_method || null, payment_date || null, req.params.id]
+      [customer_id, invoice_date, ta, payment_status, payment_method || null, payment_date || null, req.params.id]
     );
     res.json({ message: 'Invoice updated' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Delete
 app.delete('/api/invoices/:id', async (req, res) => {
   try {
     await query('DELETE FROM Invoice WHERE invoice_id = ?', [req.params.id]);
@@ -385,9 +386,6 @@ app.delete('/api/invoices/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ==================== MISSION INVOICE LINES ====================
-
-// Create line
 app.post('/api/missioninvoice', async (req, res) => {
   try {
     const { invoice_id, mission_id } = req.body;
@@ -399,9 +397,8 @@ app.post('/api/missioninvoice', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ==================== QUERIES (a-k) ====================
+// ==================== QUERIES ====================
 
-// (a) Business customers
 app.get('/api/queries/a', async (req, res) => {
   try {
     const rows = await query(
@@ -411,7 +408,6 @@ app.get('/api/queries/a', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// (b) Reservations with id > 1
 app.get('/api/queries/b', async (req, res) => {
   try {
     const rows = await query(
@@ -423,7 +419,6 @@ app.get('/api/queries/b', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// (c) Drivers and vehicles in at least one mission
 app.get('/api/queries/c', async (req, res) => {
   try {
     const rows = await query(
@@ -438,7 +433,6 @@ app.get('/api/queries/c', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// (d) Missions between Mar 11-18 2026
 app.get('/api/queries/d', async (req, res) => {
   try {
     const rows = await query(
@@ -455,7 +449,6 @@ app.get('/api/queries/d', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// (e) Customers with unpaid invoices
 app.get('/api/queries/e', async (req, res) => {
   try {
     const rows = await query(
@@ -471,7 +464,6 @@ app.get('/api/queries/e', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// (f) Drivers who drove GMC vehicles
 app.get('/api/queries/f', async (req, res) => {
   try {
     const rows = await query(
@@ -486,7 +478,6 @@ app.get('/api/queries/f', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// (g) Customers with invoices > $1000
 app.get('/api/queries/g', async (req, res) => {
   try {
     const rows = await query(
@@ -502,7 +493,6 @@ app.get('/api/queries/g', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// (h) Customers with invoice count
 app.get('/api/queries/h', async (req, res) => {
   try {
     const rows = await query(
@@ -518,7 +508,6 @@ app.get('/api/queries/h', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// (i) Drivers with missions Feb 1 - Mar 31 2026, mileage > 7000 km
 app.get('/api/queries/i', async (req, res) => {
   try {
     const rows = await query(
@@ -534,8 +523,6 @@ app.get('/api/queries/i', async (req, res) => {
     res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
-// ==================== START ====================
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

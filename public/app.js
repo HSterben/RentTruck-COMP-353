@@ -2,490 +2,665 @@ const API = '';
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
-// State
 let currentPage = 'dashboard';
 
-// API helpers
-const api = {
-  get: (url) => fetch(API + url).then(r => r.json()),
-  post: (url, data) => fetch(API + url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json()),
-  put: (url, data) => fetch(API + url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json()),
-  del: (url) => fetch(API + url, { method: 'DELETE' }).then(r => r.json()),
-};
+// Fetch JSON; throws on HTTP error or { error: "..." } in body
+async function apiJson(url, method = 'GET', body = null) {
+  const opts = { method, headers: {} };
+  if (body !== null) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const r = await fetch(API + url, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new Error(data.error || data.message || `HTTP ${r.status}`);
+  }
+  return data;
+}
 
-// Toast
+function escapeHtml(s) {
+  if (s == null) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
 function toast(msg) {
   const t = $('#toast');
   t.textContent = msg;
   t.classList.remove('hidden');
-  setTimeout(() => t.classList.add('hidden'), 2500);
+  setTimeout(() => t.classList.add('hidden'), 3200);
 }
 
-// Modal
+function showLoading() {
+  $('#content').innerHTML = '<div class="card"><p class="empty-state">Loading...</p></div>';
+}
+
+function renderError(message, page) {
+  const p = page || currentPage;
+  $('#content').innerHTML = `
+    <div class="card error-card">
+      <h3>Could not load data</h3>
+      <p>${escapeHtml(message)}</p>
+      <p class="hint">Run <code>npm start</code> in the project folder, run MySQL, import <code>RENTTRUCK(ddl).sql</code>, and set <code>.env</code> (host, user, password, database name).</p>
+      <button type="button" class="btn btn-primary" id="retry-page">Retry</button>
+    </div>`;
+  $('#retry-page').onclick = () => navigate(p);
+}
+
+async function pingHealth() {
+  const el = $('#conn-status');
+  if (!el) return;
+  el.textContent = '...';
+  el.className = 'conn-status checking';
+  try {
+    const h = await fetch(API + '/api/health');
+    const j = await h.json().catch(() => ({}));
+    if (h.ok && j.ok) {
+      el.textContent = 'DB OK';
+      el.className = 'conn-status ok';
+    } else {
+      el.textContent = 'DB error';
+      el.className = 'conn-status bad';
+    }
+  } catch {
+    el.textContent = 'Offline';
+    el.className = 'conn-status bad';
+  }
+}
+
 function openModal(title, fields, onSave) {
   $('#modal-title').textContent = title;
   const form = $('#modal-form');
   form.innerHTML = fields.map(f => {
     if (f.type === 'select') {
-      const opts = f.options.map(o => `<option value="${o.value}" ${o.value == f.value ? 'selected' : ''}>${o.label}</option>`).join('');
-      return `<div class="form-group"><label>${f.label}</label><select name="${f.name}">${opts}</select></div>`;
+      const opts = (f.options || []).map(o =>
+        `<option value="${escapeHtml(o.value)}" ${String(o.value) == String(f.value) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`
+      ).join('');
+      return `<div class="form-group"><label>${escapeHtml(f.label)}</label><select name="${escapeHtml(f.name)}" ${f.required ? 'required' : ''}>${opts}</select></div>`;
     }
-    const val = f.value !== undefined && f.value !== null ? f.value : '';
-    return `<div class="form-group"><label>${f.label}</label><input type="${f.type || 'text'}" name="${f.name}" value="${val}" ${f.required ? 'required' : ''} ${f.step ? `step="${f.step}"` : ''}></div>`;
+    const val = f.value !== undefined && f.value !== null ? String(f.value) : '';
+    const req = f.required ? 'required' : '';
+    return `<div class="form-group"><label>${escapeHtml(f.label)}</label><input type="${f.type || 'text'}" name="${escapeHtml(f.name)}" value="${escapeHtml(val)}" ${req} ${f.step ? `step="${escapeHtml(f.step)}"` : ''}></div>`;
   }).join('');
 
-  $('#modal-overlay').classList.remove('hidden');
-  $('#modal-save').onclick = () => {
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
     const data = {};
-    form.querySelectorAll('input, select').forEach(el => {
+    form.querySelectorAll('input, select, textarea').forEach((el) => {
       data[el.name] = el.value === '' ? null : el.value;
     });
     onSave(data);
     closeModal();
   };
+
+  $('#modal-overlay').classList.remove('hidden');
 }
 
-function closeModal() { $('#modal-overlay').classList.add('hidden'); }
+function closeModal() {
+  $('#modal-overlay').classList.add('hidden');
+}
+
 $('#modal-close').onclick = closeModal;
 $('#modal-cancel').onclick = closeModal;
-$('#modal-overlay').onclick = (e) => { if (e.target === $('#modal-overlay')) closeModal(); };
+$('#modal-overlay').onclick = (e) => {
+  if (e.target === $('#modal-overlay')) closeModal();
+};
 
-// Badge helper
 function badge(val) {
   const cls = {
     Active: 'badge-active', Completed: 'badge-completed', Paid: 'badge-paid',
     Cancelled: 'badge-cancelled', Unpaid: 'badge-unpaid',
-    Scheduled: 'badge-scheduled', Ongoing: 'badge-ongoing'
+    Scheduled: 'badge-scheduled', Ongoing: 'badge-ongoing',
+    Business: 'badge-active', Individual: 'badge-scheduled',
+    Tourism: 'badge-scheduled', Heavyweight: 'badge-ongoing', 'Super Heavyweight': 'badge-active'
   };
-  return `<span class="badge ${cls[val] || ''}">${val}</span>`;
+  return `<span class="badge ${cls[val] || ''}">${escapeHtml(val)}</span>`;
 }
 
-// Format helpers
 function fmtDate(d) { return d ? new Date(d).toLocaleDateString() : '-'; }
 function fmtDateTime(d) { return d ? new Date(d).toLocaleString() : '-'; }
 function fmtMoney(v) { return v != null ? `$${Number(v).toFixed(2)}` : '-'; }
 
-// ========================= PAGES =========================
-
-// Dashboard
-async function renderDashboard() {
-  const [customers, drivers, trucks, missions, invoices] = await Promise.all([
-    api.get('/api/customers'), api.get('/api/drivers'), api.get('/api/trucks'),
-    api.get('/api/missions'), api.get('/api/invoices')
-  ]);
-  const active = missions.filter(m => m.status === 'Scheduled' || m.status === 'Ongoing').length;
-  const unpaid = invoices.filter(i => i.payment_status === 'Unpaid').length;
-
-  $('#content').innerHTML = `
-    <div class="stats-grid">
-      <div class="stat-card"><div class="stat-value">${customers.length}</div><div class="stat-label">Customers</div></div>
-      <div class="stat-card"><div class="stat-value">${drivers.length}</div><div class="stat-label">Drivers</div></div>
-      <div class="stat-card"><div class="stat-value">${trucks.length}</div><div class="stat-label">Trucks</div></div>
-      <div class="stat-card"><div class="stat-value">${missions.length}</div><div class="stat-label">Missions</div></div>
-      <div class="stat-card"><div class="stat-value">${active}</div><div class="stat-label">Active Missions</div></div>
-      <div class="stat-card"><div class="stat-value">${unpaid}</div><div class="stat-label">Unpaid Invoices</div></div>
-    </div>
-    <div class="card">
-      <div class="card-header"><h3>Recent Missions</h3></div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>ID</th><th>Driver</th><th>Truck</th><th>Start</th><th>End</th><th>Status</th></tr></thead>
-        <tbody>${missions.slice(-5).reverse().map(m => `
-          <tr><td>${m.mission_id}</td><td>${m.driver_name}</td><td>${m.truck_name}</td>
-          <td>${fmtDateTime(m.planned_start)}</td><td>${fmtDateTime(m.planned_end)}</td><td>${badge(m.status)}</td></tr>`).join('')}
-        </tbody>
-      </table></div>
-    </div>`;
+function truncLoc(s, n) {
+  if (!s) return '-';
+  return s.length > n ? s.slice(0, n) + '…' : s;
 }
 
-// Customers
-async function renderCustomers() {
-  const rows = await api.get('/api/customers');
-  $('#content').innerHTML = `
-    <div class="card">
-      <div class="card-header"><h3>All Customers</h3><button class="btn btn-primary btn-sm" id="add-customer">+ Add</button></div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Address</th><th>Contact</th><th>Actions</th></tr></thead>
-        <tbody>${rows.map(c => `
-          <tr>
-            <td>${c.customer_id}</td><td>${badge(c.customer_type === 'Business' ? 'Active' : 'Scheduled').replace(/Active|Scheduled/, c.customer_type)}</td>
-            <td>${c.business_name || (c.first_name + ' ' + c.last_name)}</td><td>${c.address}</td><td>${c.contact}</td>
-            <td class="actions">
-              <button class="btn btn-secondary btn-sm edit-customer" data-id="${c.customer_id}">Edit</button>
-              <button class="btn btn-danger btn-sm del-customer" data-id="${c.customer_id}">Del</button>
-            </td>
-          </tr>`).join('')}
-        </tbody>
-      </table></div>
-    </div>`;
+function fmtDT(d) {
+  if (!d) return '';
+  try {
+    const x = new Date(d);
+    if (Number.isNaN(x.getTime())) return '';
+    const pad = (z) => String(z).padStart(2, '0');
+    return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}T${pad(x.getHours())}:${pad(x.getMinutes())}`;
+  } catch {
+    return '';
+  }
+}
 
-  $('#add-customer').onclick = () => customerForm();
-  $$('.edit-customer').forEach(b => b.onclick = () => customerForm(rows.find(c => c.customer_id == b.dataset.id)));
-  $$('.del-customer').forEach(b => b.onclick = async () => {
-    if (confirm('Delete this customer?')) {
-      const res = await api.del('/api/customers/' + b.dataset.id);
-      toast(res.message || res.error);
-      renderCustomers();
-    }
-  });
+function toNumOrNull(v) {
+  if (v === '' || v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// ========================= PAGES =========================
+
+async function renderDashboard() {
+  showLoading();
+  try {
+    const [customers, drivers, trucks, missions, invoices] = await Promise.all([
+      apiJson('/api/customers'),
+      apiJson('/api/drivers'),
+      apiJson('/api/trucks'),
+      apiJson('/api/missions'),
+      apiJson('/api/invoices')
+    ]);
+    if (!Array.isArray(customers)) throw new Error('Invalid API response');
+    const active = missions.filter(m => m.status === 'Scheduled' || m.status === 'Ongoing').length;
+    const unpaid = invoices.filter(i => i.payment_status === 'Unpaid').length;
+    const recent = [...missions].sort((a, b) => b.mission_id - a.mission_id).slice(0, 5);
+
+    $('#content').innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-value">${customers.length}</div><div class="stat-label">Customers</div></div>
+        <div class="stat-card"><div class="stat-value">${drivers.length}</div><div class="stat-label">Drivers</div></div>
+        <div class="stat-card"><div class="stat-value">${trucks.length}</div><div class="stat-label">Trucks</div></div>
+        <div class="stat-card"><div class="stat-value">${missions.length}</div><div class="stat-label">Missions</div></div>
+        <div class="stat-card"><div class="stat-value">${active}</div><div class="stat-label">Active missions</div></div>
+        <div class="stat-card"><div class="stat-value">${unpaid}</div><div class="stat-label">Unpaid invoices</div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Recent missions</h3></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>ID</th><th>Driver</th><th>Truck</th><th>Start</th><th>End</th><th>Status</th></tr></thead>
+          <tbody>${recent.length ? recent.map(m => `
+            <tr><td>${m.mission_id}</td><td>${escapeHtml(m.driver_name)}</td><td>${escapeHtml(m.truck_name)}</td>
+            <td>${fmtDateTime(m.planned_start)}</td><td>${fmtDateTime(m.planned_end)}</td><td>${badge(m.status)}</td></tr>`).join('') : '<tr><td colspan="6" class="empty-state">No missions yet</td></tr>'}
+          </tbody>
+        </table></div>
+      </div>`;
+  } catch (e) {
+    renderError(e.message);
+  }
+}
+
+async function renderCustomers() {
+  showLoading();
+  try {
+    const rows = await apiJson('/api/customers');
+    $('#content').innerHTML = `
+      <div class="card">
+        <div class="card-header"><h3>Customers</h3><button type="button" class="btn btn-primary btn-sm" id="add-customer">+ Add</button></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Address</th><th>Contact</th><th>Actions</th></tr></thead>
+          <tbody>${rows.length ? rows.map(c => `
+            <tr>
+              <td>${c.customer_id}</td><td>${badge(c.customer_type)}</td>
+              <td>${escapeHtml(c.business_name || c.first_name + ' ' + c.last_name)}</td>
+              <td>${escapeHtml(c.address)}</td><td>${escapeHtml(c.contact)}</td>
+              <td class="actions">
+                <button type="button" class="btn btn-secondary btn-sm edit-customer" data-id="${c.customer_id}">Edit</button>
+                <button type="button" class="btn btn-danger btn-sm del-customer" data-id="${c.customer_id}">Delete</button>
+              </td>
+            </tr>`).join('') : '<tr><td colspan="6" class="empty-state">No customers — add one or import SQL</td></tr>'}
+          </tbody>
+        </table></div>
+      </div>`;
+
+    $('#add-customer').onclick = () => customerForm();
+    $$('.edit-customer').forEach(b => b.onclick = () => customerForm(rows.find(c => c.customer_id == b.dataset.id)));
+    $$('.del-customer').forEach(b => b.onclick = async () => {
+      if (!confirm('Delete this customer?')) return;
+      try {
+        const res = await apiJson('/api/customers/' + b.dataset.id, 'DELETE');
+        toast(res.message || 'Deleted');
+        renderCustomers();
+      } catch (err) { toast(err.message); }
+    });
+  } catch (e) {
+    renderError(e.message);
+  }
 }
 
 function customerForm(c = null) {
-  openModal(c ? 'Edit Customer' : 'New Customer', [
+  openModal(c ? 'Edit customer' : 'New customer', [
     { name: 'customer_type', label: 'Type', type: 'select', value: c?.customer_type || 'Individual',
       options: [{ value: 'Individual', label: 'Individual' }, { value: 'Business', label: 'Business' }] },
-    { name: 'business_name', label: 'Business Name', value: c?.business_name },
-    { name: 'first_name', label: 'First Name', value: c?.first_name },
-    { name: 'last_name', label: 'Last Name', value: c?.last_name },
+    { name: 'business_name', label: 'Business name', value: c?.business_name },
+    { name: 'first_name', label: 'First name', value: c?.first_name },
+    { name: 'last_name', label: 'Last name', value: c?.last_name },
     { name: 'address', label: 'Address', value: c?.address, required: true },
     { name: 'contact', label: 'Contact', value: c?.contact, required: true },
   ], async (data) => {
-    const res = c
-      ? await api.put('/api/customers/' + c.customer_id, data)
-      : await api.post('/api/customers', data);
-    toast(res.message || res.error);
-    renderCustomers();
+    try {
+      const res = c
+        ? await apiJson('/api/customers/' + c.customer_id, 'PUT', data)
+        : await apiJson('/api/customers', 'POST', data);
+      toast(res.message || 'Saved');
+      renderCustomers();
+    } catch (err) { toast(err.message); }
   });
 }
 
-// Drivers
 async function renderDrivers() {
-  const rows = await api.get('/api/drivers');
-  $('#content').innerHTML = `
-    <div class="card">
-      <div class="card-header"><h3>All Drivers</h3><button class="btn btn-primary btn-sm" id="add-driver">+ Add</button></div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>ID</th><th>Name</th><th>License</th><th>Contact</th><th>Actions</th></tr></thead>
-        <tbody>${rows.map(d => `
-          <tr>
-            <td>${d.driver_id}</td><td>${d.first_name} ${d.last_name}</td><td>${d.license_type}</td><td>${d.contact_driver}</td>
-            <td class="actions">
-              <button class="btn btn-secondary btn-sm edit-driver" data-id="${d.driver_id}">Edit</button>
-              <button class="btn btn-danger btn-sm del-driver" data-id="${d.driver_id}">Del</button>
-            </td>
-          </tr>`).join('')}
-        </tbody>
-      </table></div>
-    </div>`;
+  showLoading();
+  try {
+    const rows = await apiJson('/api/drivers');
+    $('#content').innerHTML = `
+      <div class="card">
+        <div class="card-header"><h3>Drivers</h3><button type="button" class="btn btn-primary btn-sm" id="add-driver">+ Add</button></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>ID</th><th>Name</th><th>License</th><th>Contact</th><th>Actions</th></tr></thead>
+          <tbody>${rows.length ? rows.map(d => `
+            <tr>
+              <td>${d.driver_id}</td><td>${escapeHtml(d.first_name + ' ' + d.last_name)}</td>
+              <td>${badge(d.license_type)}</td><td>${escapeHtml(d.contact_driver)}</td>
+              <td class="actions">
+                <button type="button" class="btn btn-secondary btn-sm edit-driver" data-id="${d.driver_id}">Edit</button>
+                <button type="button" class="btn btn-danger btn-sm del-driver" data-id="${d.driver_id}">Delete</button>
+              </td>
+            </tr>`).join('') : '<tr><td colspan="5" class="empty-state">No drivers</td></tr>'}
+          </tbody>
+        </table></div>
+      </div>`;
 
-  $('#add-driver').onclick = () => driverForm();
-  $$('.edit-driver').forEach(b => b.onclick = () => driverForm(rows.find(d => d.driver_id == b.dataset.id)));
-  $$('.del-driver').forEach(b => b.onclick = async () => {
-    if (confirm('Delete this driver?')) {
-      const res = await api.del('/api/drivers/' + b.dataset.id);
-      toast(res.message || res.error);
-      renderDrivers();
-    }
-  });
+    $('#add-driver').onclick = () => driverForm();
+    $$('.edit-driver').forEach(b => b.onclick = () => driverForm(rows.find(d => d.driver_id == b.dataset.id)));
+    $$('.del-driver').forEach(b => b.onclick = async () => {
+      if (!confirm('Delete this driver?')) return;
+      try {
+        const res = await apiJson('/api/drivers/' + b.dataset.id, 'DELETE');
+        toast(res.message || 'Deleted');
+        renderDrivers();
+      } catch (err) { toast(err.message); }
+    });
+  } catch (e) {
+    renderError(e.message);
+  }
 }
 
 function driverForm(d = null) {
-  openModal(d ? 'Edit Driver' : 'New Driver', [
-    { name: 'first_name', label: 'First Name', value: d?.first_name, required: true },
-    { name: 'last_name', label: 'Last Name', value: d?.last_name, required: true },
-    { name: 'license_type', label: 'License Type', type: 'select', value: d?.license_type || 'Tourism',
+  openModal(d ? 'Edit driver' : 'New driver', [
+    { name: 'first_name', label: 'First name', value: d?.first_name, required: true },
+    { name: 'last_name', label: 'Last name', value: d?.last_name, required: true },
+    { name: 'license_type', label: 'License type', type: 'select', value: d?.license_type || 'Tourism',
       options: [{ value: 'Tourism', label: 'Tourism' }, { value: 'Heavyweight', label: 'Heavyweight' }, { value: 'Super Heavyweight', label: 'Super Heavyweight' }] },
     { name: 'contact_driver', label: 'Contact', value: d?.contact_driver, required: true },
   ], async (data) => {
-    const res = d
-      ? await api.put('/api/drivers/' + d.driver_id, data)
-      : await api.post('/api/drivers', data);
-    toast(res.message || res.error);
-    renderDrivers();
+    try {
+      const res = d
+        ? await apiJson('/api/drivers/' + d.driver_id, 'PUT', data)
+        : await apiJson('/api/drivers', 'POST', data);
+      toast(res.message || 'Saved');
+      renderDrivers();
+    } catch (err) { toast(err.message); }
   });
 }
 
-// Trucks
 async function renderTrucks() {
-  const rows = await api.get('/api/trucks');
-  $('#content').innerHTML = `
-    <div class="card">
-      <div class="card-header"><h3>All Trucks</h3><button class="btn btn-primary btn-sm" id="add-truck">+ Add</button></div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>ID</th><th>Brand</th><th>Model</th><th>Type</th><th>Plate</th><th>$/hr</th><th>$/km</th><th>Actions</th></tr></thead>
-        <tbody>${rows.map(t => `
-          <tr>
-            <td>${t.truck_id}</td><td>${t.brand}</td><td>${t.model}</td><td>${t.truck_type}</td>
-            <td>${t.license_plate}</td><td>${fmtMoney(t.rate_per_hour)}</td><td>${fmtMoney(t.rate_per_km)}</td>
-            <td class="actions">
-              <button class="btn btn-secondary btn-sm edit-truck" data-id="${t.truck_id}">Edit</button>
-              <button class="btn btn-danger btn-sm del-truck" data-id="${t.truck_id}">Del</button>
-            </td>
-          </tr>`).join('')}
-        </tbody>
-      </table></div>
-    </div>`;
+  showLoading();
+  try {
+    const rows = await apiJson('/api/trucks');
+    $('#content').innerHTML = `
+      <div class="card">
+        <div class="card-header"><h3>Trucks</h3><button type="button" class="btn btn-primary btn-sm" id="add-truck">+ Add</button></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>ID</th><th>Brand</th><th>Model</th><th>Type</th><th>Plate</th><th>$/hr</th><th>$/km</th><th>Actions</th></tr></thead>
+          <tbody>${rows.length ? rows.map(t => `
+            <tr>
+              <td>${t.truck_id}</td><td>${escapeHtml(t.brand)}</td><td>${escapeHtml(t.model)}</td>
+              <td>${badge(t.truck_type)}</td><td>${escapeHtml(t.license_plate)}</td>
+              <td>${fmtMoney(t.rate_per_hour)}</td><td>${fmtMoney(t.rate_per_km)}</td>
+              <td class="actions">
+                <button type="button" class="btn btn-secondary btn-sm edit-truck" data-id="${t.truck_id}">Edit</button>
+                <button type="button" class="btn btn-danger btn-sm del-truck" data-id="${t.truck_id}">Delete</button>
+              </td>
+            </tr>`).join('') : '<tr><td colspan="8" class="empty-state">No trucks</td></tr>'}
+          </tbody>
+        </table></div>
+      </div>`;
 
-  $('#add-truck').onclick = () => truckForm();
-  $$('.edit-truck').forEach(b => b.onclick = () => truckForm(rows.find(t => t.truck_id == b.dataset.id)));
-  $$('.del-truck').forEach(b => b.onclick = async () => {
-    if (confirm('Delete this truck?')) {
-      const res = await api.del('/api/trucks/' + b.dataset.id);
-      toast(res.message || res.error);
-      renderTrucks();
-    }
-  });
+    $('#add-truck').onclick = () => truckForm();
+    $$('.edit-truck').forEach(b => b.onclick = () => truckForm(rows.find(t => t.truck_id == b.dataset.id)));
+    $$('.del-truck').forEach(b => b.onclick = async () => {
+      if (!confirm('Delete this truck?')) return;
+      try {
+        const res = await apiJson('/api/trucks/' + b.dataset.id, 'DELETE');
+        toast(res.message || 'Deleted');
+        renderTrucks();
+      } catch (err) { toast(err.message); }
+    });
+  } catch (e) {
+    renderError(e.message);
+  }
 }
 
 function truckForm(t = null) {
-  openModal(t ? 'Edit Truck' : 'New Truck', [
+  openModal(t ? 'Edit truck' : 'New truck', [
     { name: 'brand', label: 'Brand', value: t?.brand, required: true },
     { name: 'model', label: 'Model', value: t?.model, required: true },
     { name: 'truck_type', label: 'Type', type: 'select', value: t?.truck_type || 'Tourism',
       options: [{ value: 'Tourism', label: 'Tourism' }, { value: 'Heavyweight', label: 'Heavyweight' }, { value: 'Super Heavyweight', label: 'Super Heavyweight' }] },
-    { name: 'license_plate', label: 'License Plate', value: t?.license_plate, required: true },
+    { name: 'license_plate', label: 'License plate', value: t?.license_plate, required: true },
   ], async (data) => {
-    const res = t
-      ? await api.put('/api/trucks/' + t.truck_id, data)
-      : await api.post('/api/trucks', data);
-    toast(res.message || res.error);
-    renderTrucks();
+    try {
+      const res = t
+        ? await apiJson('/api/trucks/' + t.truck_id, 'PUT', data)
+        : await apiJson('/api/trucks', 'POST', data);
+      toast(res.message || 'Saved');
+      renderTrucks();
+    } catch (err) { toast(err.message); }
   });
 }
 
-// Reservations
 async function renderReservations() {
-  const [rows, customers] = await Promise.all([
-    api.get('/api/reservations'), api.get('/api/customers')
-  ]);
-  $('#content').innerHTML = `
-    <div class="card">
-      <div class="card-header"><h3>All Reservations</h3><button class="btn btn-primary btn-sm" id="add-res">+ Add</button></div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>ID</th><th>Customer</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead>
-        <tbody>${rows.map(r => `
-          <tr>
-            <td>${r.reservation_id}</td><td>${r.customer_name}</td><td>${fmtDate(r.reservation_date)}</td><td>${badge(r.status)}</td>
-            <td class="actions">
-              <button class="btn btn-secondary btn-sm edit-res" data-id="${r.reservation_id}">Edit</button>
-              <button class="btn btn-danger btn-sm del-res" data-id="${r.reservation_id}">Del</button>
-            </td>
-          </tr>`).join('')}
-        </tbody>
-      </table></div>
-    </div>`;
+  showLoading();
+  try {
+    const [rows, customers] = await Promise.all([
+      apiJson('/api/reservations'),
+      apiJson('/api/customers')
+    ]);
+    const custOpts = customers.map(c => ({ value: c.customer_id, label: c.business_name || (c.first_name + ' ' + c.last_name) }));
 
-  const custOpts = customers.map(c => ({ value: c.customer_id, label: c.business_name || (c.first_name + ' ' + c.last_name) }));
+    $('#content').innerHTML = `
+      <div class="card">
+        <div class="card-header"><h3>Reservations</h3><button type="button" class="btn btn-primary btn-sm" id="add-res">+ Add</button></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>ID</th><th>Customer</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>${rows.length ? rows.map(r => `
+            <tr>
+              <td>${r.reservation_id}</td><td>${escapeHtml(r.customer_name)}</td><td>${fmtDate(r.reservation_date)}</td><td>${badge(r.status)}</td>
+              <td class="actions">
+                <button type="button" class="btn btn-secondary btn-sm edit-res" data-id="${r.reservation_id}">Edit</button>
+                <button type="button" class="btn btn-danger btn-sm del-res" data-id="${r.reservation_id}">Delete</button>
+              </td>
+            </tr>`).join('') : '<tr><td colspan="5" class="empty-state">No reservations</td></tr>'}
+          </tbody>
+        </table></div>
+      </div>`;
 
-  $('#add-res').onclick = () => resForm(null, custOpts);
-  $$('.edit-res').forEach(b => b.onclick = () => resForm(rows.find(r => r.reservation_id == b.dataset.id), custOpts));
-  $$('.del-res').forEach(b => b.onclick = async () => {
-    if (confirm('Delete this reservation?')) {
-      const res = await api.del('/api/reservations/' + b.dataset.id);
-      toast(res.message || res.error);
-      renderReservations();
-    }
-  });
+    $('#add-res').onclick = () => resForm(null, custOpts);
+    $$('.edit-res').forEach(b => b.onclick = () => resForm(rows.find(r => r.reservation_id == b.dataset.id), custOpts));
+    $$('.del-res').forEach(b => b.onclick = async () => {
+      if (!confirm('Delete this reservation?')) return;
+      try {
+        const res = await apiJson('/api/reservations/' + b.dataset.id, 'DELETE');
+        toast(res.message || 'Deleted');
+        renderReservations();
+      } catch (err) { toast(err.message); }
+    });
+  } catch (e) {
+    renderError(e.message);
+  }
 }
 
 function resForm(r = null, custOpts) {
+  if (!custOpts.length) {
+    toast('Add a customer first');
+    return;
+  }
   const dateVal = r?.reservation_date ? new Date(r.reservation_date).toISOString().split('T')[0] : '';
-  openModal(r ? 'Edit Reservation' : 'New Reservation', [
-    { name: 'customer_id', label: 'Customer', type: 'select', value: r?.customer_id, options: custOpts },
+  openModal(r ? 'Edit reservation' : 'New reservation', [
+    { name: 'customer_id', label: 'Customer', type: 'select', value: r?.customer_id, options: custOpts, required: true },
     { name: 'reservation_date', label: 'Date', type: 'date', value: dateVal, required: true },
     { name: 'status', label: 'Status', type: 'select', value: r?.status || 'Active',
       options: [{ value: 'Active', label: 'Active' }, { value: 'Cancelled', label: 'Cancelled' }] },
   ], async (data) => {
-    const res = r
-      ? await api.put('/api/reservations/' + r.reservation_id, data)
-      : await api.post('/api/reservations', data);
-    toast(res.message || res.error);
-    renderReservations();
+    try {
+      const res = r
+        ? await apiJson('/api/reservations/' + r.reservation_id, 'PUT', data)
+        : await apiJson('/api/reservations', 'POST', data);
+      toast(res.message || 'Saved');
+      renderReservations();
+    } catch (err) { toast(err.message); }
   });
 }
 
-// Missions
 async function renderMissions() {
-  const [rows, reservations, trucks, drivers] = await Promise.all([
-    api.get('/api/missions'), api.get('/api/reservations'), api.get('/api/trucks'), api.get('/api/drivers')
-  ]);
+  showLoading();
+  try {
+    const [rows, reservations, trucks, drivers] = await Promise.all([
+      apiJson('/api/missions'),
+      apiJson('/api/reservations'),
+      apiJson('/api/trucks'),
+      apiJson('/api/drivers')
+    ]);
 
-  $('#content').innerHTML = `
-    <div class="card">
-      <div class="card-header"><h3>All Missions</h3><button class="btn btn-primary btn-sm" id="add-mission">+ Add</button></div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>ID</th><th>Res#</th><th>Driver</th><th>Truck</th><th>Location</th><th>Start</th><th>End</th><th>Status</th><th>Actions</th></tr></thead>
-        <tbody>${rows.map(m => `
-          <tr>
-            <td>${m.mission_id}</td><td>${m.reservation_id}</td><td>${m.driver_name}</td><td>${m.truck_name}</td>
-            <td>${m.rendezvous_place.substring(0, 30)}...</td>
-            <td>${fmtDateTime(m.planned_start)}</td><td>${fmtDateTime(m.planned_end)}</td><td>${badge(m.status)}</td>
-            <td class="actions">
-              <button class="btn btn-secondary btn-sm edit-mission" data-id="${m.mission_id}">Edit</button>
-              ${m.status !== 'Cancelled' ? `<button class="btn btn-warn btn-sm cancel-mission" data-id="${m.mission_id}">Cancel</button>` : ''}
-              <button class="btn btn-danger btn-sm del-mission" data-id="${m.mission_id}">Del</button>
-            </td>
-          </tr>`).join('')}
-        </tbody>
-      </table></div>
-    </div>`;
+    const resOpts = reservations.map(r => ({ value: r.reservation_id, label: `#${r.reservation_id} — ${r.customer_name}` }));
+    const truckOpts = trucks.map(t => ({ value: t.truck_id, label: `${t.brand} ${t.model} (${t.license_plate})` }));
+    const driverOpts = drivers.map(d => ({ value: d.driver_id, label: `${d.first_name} ${d.last_name} [${d.license_type}]` }));
 
-  const resOpts = reservations.map(r => ({ value: r.reservation_id, label: `#${r.reservation_id} - ${r.customer_name}` }));
-  const truckOpts = trucks.map(t => ({ value: t.truck_id, label: `${t.brand} ${t.model} (${t.license_plate})` }));
-  const driverOpts = drivers.map(d => ({ value: d.driver_id, label: `${d.first_name} ${d.last_name} [${d.license_type}]` }));
+    $('#content').innerHTML = `
+      <div class="card">
+        <div class="card-header"><h3>Missions</h3><button type="button" class="btn btn-primary btn-sm" id="add-mission">+ Add</button></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>ID</th><th>Res#</th><th>Driver</th><th>Truck</th><th>Location</th><th>Start</th><th>End</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>${rows.length ? rows.map(m => `
+            <tr>
+              <td>${m.mission_id}</td><td>${m.reservation_id}</td><td>${escapeHtml(m.driver_name)}</td><td>${escapeHtml(m.truck_name)}</td>
+              <td>${escapeHtml(truncLoc(m.rendezvous_place, 40))}</td>
+              <td>${fmtDateTime(m.planned_start)}</td><td>${fmtDateTime(m.planned_end)}</td><td>${badge(m.status)}</td>
+              <td class="actions">
+                <button type="button" class="btn btn-secondary btn-sm edit-mission" data-id="${m.mission_id}">Edit</button>
+                ${m.status !== 'Cancelled' ? `<button type="button" class="btn btn-warn btn-sm cancel-mission" data-id="${m.mission_id}">Cancel</button>` : ''}
+                <button type="button" class="btn btn-danger btn-sm del-mission" data-id="${m.mission_id}">Delete</button>
+              </td>
+            </tr>`).join('') : '<tr><td colspan="9" class="empty-state">No missions</td></tr>'}
+          </tbody>
+        </table></div>
+      </div>`;
 
-  $('#add-mission').onclick = () => missionForm(null, resOpts, truckOpts, driverOpts);
-  $$('.edit-mission').forEach(b => b.onclick = () => missionForm(rows.find(m => m.mission_id == b.dataset.id), resOpts, truckOpts, driverOpts));
-  $$('.cancel-mission').forEach(b => b.onclick = async () => {
-    if (confirm('Cancel this mission?')) {
-      const res = await api.put('/api/missions/' + b.dataset.id + '/cancel');
-      toast(res.message || res.error);
-      renderMissions();
-    }
-  });
-  $$('.del-mission').forEach(b => b.onclick = async () => {
-    if (confirm('Delete this mission?')) {
-      const res = await api.del('/api/missions/' + b.dataset.id);
-      toast(res.message || res.error);
-      renderMissions();
-    }
-  });
+    $('#add-mission').onclick = () => {
+      if (!resOpts.length || !truckOpts.length || !driverOpts.length) {
+        toast('Need reservations, trucks, and drivers first');
+        return;
+      }
+      missionForm(null, resOpts, truckOpts, driverOpts);
+    };
+    $$('.edit-mission').forEach(b => b.onclick = () => missionForm(rows.find(m => m.mission_id == b.dataset.id), resOpts, truckOpts, driverOpts));
+    $$('.cancel-mission').forEach(b => b.onclick = async () => {
+      if (!confirm('Cancel this mission?')) return;
+      try {
+        const res = await apiJson('/api/missions/' + b.dataset.id + '/cancel', 'PUT');
+        toast(res.message || 'Cancelled');
+        renderMissions();
+      } catch (err) { toast(err.message); }
+    });
+    $$('.del-mission').forEach(b => b.onclick = async () => {
+      if (!confirm('Delete this mission?')) return;
+      try {
+        const res = await apiJson('/api/missions/' + b.dataset.id, 'DELETE');
+        toast(res.message || 'Deleted');
+        renderMissions();
+      } catch (err) { toast(err.message); }
+    });
+  } catch (e) {
+    renderError(e.message);
+  }
 }
-
-function fmtDT(d) { return d ? new Date(d).toISOString().slice(0, 16) : ''; }
 
 function missionForm(m = null, resOpts, truckOpts, driverOpts) {
   const typeOpts = [{ value: 'Tourism', label: 'Tourism' }, { value: 'Heavyweight', label: 'Heavyweight' }, { value: 'Super Heavyweight', label: 'Super Heavyweight' }];
   const statusOpts = [{ value: 'Scheduled', label: 'Scheduled' }, { value: 'Ongoing', label: 'Ongoing' }, { value: 'Completed', label: 'Completed' }, { value: 'Cancelled', label: 'Cancelled' }];
 
-  openModal(m ? 'Edit Mission (Query J)' : 'New Mission', [
-    { name: 'reservation_id', label: 'Reservation', type: 'select', value: m?.reservation_id, options: resOpts },
-    { name: 'truck_id', label: 'Truck', type: 'select', value: m?.truck_id, options: truckOpts },
-    { name: 'driver_id', label: 'Driver', type: 'select', value: m?.driver_id, options: driverOpts },
+  openModal(m ? 'Edit mission' : 'New mission', [
+    { name: 'reservation_id', label: 'Reservation', type: 'select', value: m?.reservation_id, options: resOpts, required: true },
+    { name: 'truck_id', label: 'Truck', type: 'select', value: m?.truck_id, options: truckOpts, required: true },
+    { name: 'driver_id', label: 'Driver', type: 'select', value: m?.driver_id, options: driverOpts, required: true },
     { name: 'rendezvous_place', label: 'Location', value: m?.rendezvous_place, required: true },
-    { name: 'req_truck_type', label: 'Required Type', type: 'select', value: m?.req_truck_type, options: typeOpts },
-    { name: 'planned_start', label: 'Planned Start', type: 'datetime-local', value: fmtDT(m?.planned_start), required: true },
-    { name: 'planned_end', label: 'Planned End', type: 'datetime-local', value: fmtDT(m?.planned_end), required: true },
-    { name: 'actual_start', label: 'Actual Start', type: 'datetime-local', value: fmtDT(m?.actual_start) },
-    { name: 'actual_end', label: 'Actual End', type: 'datetime-local', value: fmtDT(m?.actual_end) },
-    { name: 'odometer_before', label: 'Odometer Before', type: 'number', value: m?.odometer_before },
-    { name: 'odometer_after', label: 'Odometer After', type: 'number', value: m?.odometer_after },
+    { name: 'req_truck_type', label: 'Required type', type: 'select', value: m?.req_truck_type, options: typeOpts },
+    { name: 'planned_start', label: 'Planned start', type: 'datetime-local', value: fmtDT(m?.planned_start), required: true },
+    { name: 'planned_end', label: 'Planned end', type: 'datetime-local', value: fmtDT(m?.planned_end), required: true },
+    { name: 'actual_start', label: 'Actual start', type: 'datetime-local', value: fmtDT(m?.actual_start) },
+    { name: 'actual_end', label: 'Actual end', type: 'datetime-local', value: fmtDT(m?.actual_end) },
+    { name: 'odometer_before', label: 'Odometer before', type: 'number', value: m?.odometer_before },
+    { name: 'odometer_after', label: 'Odometer after', type: 'number', value: m?.odometer_after },
     { name: 'status', label: 'Status', type: 'select', value: m?.status || 'Scheduled', options: statusOpts },
   ], async (data) => {
-    const res = m
-      ? await api.put('/api/missions/' + m.mission_id, data)
-      : await api.post('/api/missions', data);
-    toast(res.message || res.error);
-    renderMissions();
+    const payload = {
+      ...data,
+      reservation_id: Number(data.reservation_id),
+      truck_id: Number(data.truck_id),
+      driver_id: Number(data.driver_id),
+      odometer_before: toNumOrNull(data.odometer_before),
+      odometer_after: toNumOrNull(data.odometer_after)
+    };
+    try {
+      const res = m
+        ? await apiJson('/api/missions/' + m.mission_id, 'PUT', payload)
+        : await apiJson('/api/missions', 'POST', payload);
+      toast(res.message || 'Saved');
+      renderMissions();
+    } catch (err) { toast(err.message); }
   });
 }
 
-// Invoices
 async function renderInvoices() {
-  const [rows, customers] = await Promise.all([
-    api.get('/api/invoices'), api.get('/api/customers')
-  ]);
+  showLoading();
+  try {
+    const [rows, customers] = await Promise.all([
+      apiJson('/api/invoices'),
+      apiJson('/api/customers')
+    ]);
+    const custOpts = customers.map(c => ({ value: c.customer_id, label: c.business_name || (c.first_name + ' ' + c.last_name) }));
 
-  $('#content').innerHTML = `
-    <div class="card">
-      <div class="card-header"><h3>All Invoices</h3><button class="btn btn-primary btn-sm" id="add-invoice">+ Add</button></div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>ID</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th>Method</th><th>Actions</th></tr></thead>
-        <tbody>${rows.map(i => `
-          <tr>
-            <td>${i.invoice_id}</td><td>${i.customer_name}</td><td>${fmtDate(i.invoice_date)}</td>
-            <td>${fmtMoney(i.total_amount)}</td><td>${badge(i.payment_status)}</td><td>${i.payment_method || '-'}</td>
-            <td class="actions">
-              <button class="btn btn-secondary btn-sm view-lines" data-id="${i.invoice_id}">Lines</button>
-              ${i.payment_status === 'Unpaid' ? `<button class="btn btn-success btn-sm pay-inv" data-id="${i.invoice_id}">Pay</button>` : ''}
-              <button class="btn btn-secondary btn-sm edit-invoice" data-id="${i.invoice_id}">Edit</button>
-              <button class="btn btn-danger btn-sm del-invoice" data-id="${i.invoice_id}">Del</button>
-            </td>
-          </tr>`).join('')}
-        </tbody>
-      </table></div>
-    </div>
-    <div id="invoice-lines"></div>`;
+    $('#content').innerHTML = `
+      <div class="card">
+        <div class="card-header"><h3>Invoices</h3><button type="button" class="btn btn-primary btn-sm" id="add-invoice">+ Add</button></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>ID</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th>Method</th><th>Actions</th></tr></thead>
+          <tbody>${rows.length ? rows.map(i => `
+            <tr>
+              <td>${i.invoice_id}</td><td>${escapeHtml(i.customer_name)}</td><td>${fmtDate(i.invoice_date)}</td>
+              <td>${fmtMoney(i.total_amount)}</td><td>${badge(i.payment_status)}</td><td>${escapeHtml(i.payment_method || '-')}</td>
+              <td class="actions">
+                <button type="button" class="btn btn-secondary btn-sm view-lines" data-id="${i.invoice_id}">Lines</button>
+                ${i.payment_status === 'Unpaid' ? `<button type="button" class="btn btn-success btn-sm pay-inv" data-id="${i.invoice_id}">Pay</button>` : ''}
+                <button type="button" class="btn btn-secondary btn-sm edit-invoice" data-id="${i.invoice_id}">Edit</button>
+                <button type="button" class="btn btn-danger btn-sm del-invoice" data-id="${i.invoice_id}">Delete</button>
+              </td>
+            </tr>`).join('') : '<tr><td colspan="7" class="empty-state">No invoices</td></tr>'}
+          </tbody>
+        </table></div>
+      </div>
+      <div id="invoice-lines"></div>`;
 
-  const custOpts = customers.map(c => ({ value: c.customer_id, label: c.business_name || (c.first_name + ' ' + c.last_name) }));
-
-  $('#add-invoice').onclick = () => invoiceForm(null, custOpts);
-  $$('.edit-invoice').forEach(b => b.onclick = () => invoiceForm(rows.find(i => i.invoice_id == b.dataset.id), custOpts));
-  $$('.del-invoice').forEach(b => b.onclick = async () => {
-    if (confirm('Delete this invoice?')) {
-      const res = await api.del('/api/invoices/' + b.dataset.id);
-      toast(res.message || res.error);
-      renderInvoices();
-    }
-  });
-  $$('.pay-inv').forEach(b => b.onclick = () => payInvoice(b.dataset.id));
-  $$('.view-lines').forEach(b => b.onclick = () => viewLines(b.dataset.id));
+    $('#add-invoice').onclick = () => invoiceForm(null, custOpts);
+    $$('.edit-invoice').forEach(b => b.onclick = () => invoiceForm(rows.find(i => i.invoice_id == b.dataset.id), custOpts));
+    $$('.del-invoice').forEach(b => b.onclick = async () => {
+      if (!confirm('Delete this invoice?')) return;
+      try {
+        const res = await apiJson('/api/invoices/' + b.dataset.id, 'DELETE');
+        toast(res.message || 'Deleted');
+        renderInvoices();
+      } catch (err) { toast(err.message); }
+    });
+    $$('.pay-inv').forEach(b => b.onclick = () => payInvoice(b.dataset.id));
+    $$('.view-lines').forEach(b => b.onclick = () => viewLines(b.dataset.id));
+  } catch (e) {
+    renderError(e.message);
+  }
 }
 
 function invoiceForm(i = null, custOpts) {
+  if (!custOpts.length) {
+    toast('Add a customer first');
+    return;
+  }
   const dateVal = i?.invoice_date ? new Date(i.invoice_date).toISOString().split('T')[0] : '';
-  openModal(i ? 'Edit Invoice' : 'New Invoice', [
-    { name: 'customer_id', label: 'Customer', type: 'select', value: i?.customer_id, options: custOpts },
+  const payDate = i?.payment_date ? new Date(i.payment_date).toISOString().split('T')[0] : '';
+  openModal(i ? 'Edit invoice' : 'New invoice', [
+    { name: 'customer_id', label: 'Customer', type: 'select', value: i?.customer_id, options: custOpts, required: true },
     { name: 'invoice_date', label: 'Date', type: 'date', value: dateVal, required: true },
-    { name: 'total_amount', label: 'Total', type: 'number', value: i?.total_amount || 0, step: '0.01' },
+    { name: 'total_amount', label: 'Total', type: 'number', value: i?.total_amount ?? 0, step: '0.01' },
     { name: 'payment_status', label: 'Status', type: 'select', value: i?.payment_status || 'Unpaid',
       options: [{ value: 'Unpaid', label: 'Unpaid' }, { value: 'Paid', label: 'Paid' }] },
     { name: 'payment_method', label: 'Method', type: 'select', value: i?.payment_method || '',
-      options: [{ value: '', label: '- None -' }, { value: 'Credit Card', label: 'Credit Card' }, { value: 'Cash', label: 'Cash' }, { value: 'Check', label: 'Check' }] },
-    { name: 'payment_date', label: 'Payment Date', type: 'date', value: i?.payment_date ? new Date(i.payment_date).toISOString().split('T')[0] : '' },
+      options: [{ value: '', label: '—' }, { value: 'Credit Card', label: 'Credit Card' }, { value: 'Cash', label: 'Cash' }, { value: 'Check', label: 'Check' }] },
+    { name: 'payment_date', label: 'Payment date', type: 'date', value: payDate },
   ], async (data) => {
-    const res = i
-      ? await api.put('/api/invoices/' + i.invoice_id, data)
-      : await api.post('/api/invoices', data);
-    toast(res.message || res.error);
-    renderInvoices();
+    const payload = {
+      ...data,
+      customer_id: Number(data.customer_id),
+      total_amount: data.total_amount === '' || data.total_amount == null ? 0 : Number(data.total_amount)
+    };
+    try {
+      const res = i
+        ? await apiJson('/api/invoices/' + i.invoice_id, 'PUT', payload)
+        : await apiJson('/api/invoices', 'POST', payload);
+      toast(res.message || 'Saved');
+      renderInvoices();
+    } catch (err) { toast(err.message); }
   });
 }
 
 function payInvoice(id) {
-  openModal('Pay Invoice #' + id, [
-    { name: 'payment_method', label: 'Payment Method', type: 'select', value: 'Credit Card',
+  openModal('Pay invoice #' + id, [
+    { name: 'payment_method', label: 'Payment method', type: 'select', value: 'Credit Card',
       options: [{ value: 'Credit Card', label: 'Credit Card' }, { value: 'Cash', label: 'Cash' }, { value: 'Check', label: 'Check' }] },
   ], async (data) => {
-    const res = await api.put('/api/invoices/' + id + '/pay', data);
-    toast(res.message || res.error);
-    renderInvoices();
+    try {
+      const res = await apiJson('/api/invoices/' + id + '/pay', 'PUT', data);
+      toast(res.message || 'Paid');
+      renderInvoices();
+    } catch (err) { toast(err.message); }
   });
 }
 
 async function viewLines(invoiceId) {
-  const lines = await api.get('/api/invoices/' + invoiceId + '/lines');
   const el = $('#invoice-lines');
-  if (!lines.length) {
-    el.innerHTML = `<div class="card"><div class="card-header"><h3>Invoice #${invoiceId} Lines</h3></div><p class="empty-state">No lines</p></div>`;
-    return;
+  try {
+    const lines = await apiJson('/api/invoices/' + invoiceId + '/lines');
+    if (!Array.isArray(lines) || !lines.length) {
+      el.innerHTML = `<div class="card"><div class="card-header"><h3>Invoice #${invoiceId} lines</h3></div><p class="empty-state">No lines</p></div>`;
+      return;
+    }
+    el.innerHTML = `
+      <div class="card">
+        <div class="card-header"><h3>Invoice #${invoiceId} lines</h3></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Mission</th><th>Truck</th><th>Hours</th><th>Km</th><th>Duration</th><th>Km cost</th><th>Line total</th></tr></thead>
+          <tbody>${lines.map(l => `
+            <tr><td>${l.mission_id}</td><td>${escapeHtml(l.truck_name)}</td><td>${l.duration_hours}</td><td>${l.km_traveled}</td>
+            <td>${fmtMoney(l.duration_cost)}</td><td>${fmtMoney(l.km_cost)}</td><td>${fmtMoney(l.line_total)}</td></tr>`).join('')}
+          </tbody>
+        </table></div>
+      </div>`;
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (e) {
+    el.innerHTML = `<div class="card"><p class="empty-state">${escapeHtml(e.message)}</p></div>`;
   }
-  el.innerHTML = `
-    <div class="card">
-      <div class="card-header"><h3>Invoice #${invoiceId} Lines</h3></div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>Mission</th><th>Truck</th><th>Hours</th><th>Km</th><th>Duration Cost</th><th>Km Cost</th><th>Line Total</th></tr></thead>
-        <tbody>${lines.map(l => `
-          <tr><td>${l.mission_id}</td><td>${l.truck_name}</td><td>${l.duration_hours}</td><td>${l.km_traveled}</td>
-          <td>${fmtMoney(l.duration_cost)}</td><td>${fmtMoney(l.km_cost)}</td><td>${fmtMoney(l.line_total)}</td></tr>`).join('')}
-        </tbody>
-      </table></div>
-    </div>`;
 }
 
-// ========================= QUERIES =========================
-
 const QUERIES = [
-  { id: 'a', title: 'Business Customers', desc: 'Customers that are businesses' },
-  { id: 'b', title: 'Reservations > 1', desc: 'Reservations with ID greater than 1' },
-  { id: 'c', title: 'Drivers & Vehicles in Missions', desc: 'Drivers and vehicles in at least one mission' },
-  { id: 'd', title: 'Missions Mar 11-18', desc: 'Missions between March 11-18, 2026 with drivers/vehicles' },
-  { id: 'e', title: 'Unpaid Invoices', desc: 'Customers who have not paid invoices' },
-  { id: 'f', title: 'GMC Drivers', desc: 'Drivers who drove GMC brand vehicles' },
-  { id: 'g', title: 'Invoices > $1000', desc: 'Customers with invoices greater than $1000' },
-  { id: 'h', title: 'Invoice Counts', desc: 'Customers with their number of invoices' },
-  { id: 'i', title: 'High Mileage Drivers', desc: 'Drivers with missions Feb-Mar 2026, mileage > 7000 km' },
-  { id: 'j', title: 'Update Mission (Transaction)', desc: 'Edit mission details via transaction' },
-  { id: 'k', title: 'Cancel Mission (Transaction)', desc: 'Cancel a mission or part of a mission' },
+  { id: 'a', title: 'Business customers', desc: 'Business-type customers' },
+  { id: 'b', title: 'Reservations > 1', desc: 'Reservation id greater than 1' },
+  { id: 'c', title: 'Drivers & vehicles', desc: 'Pairs in at least one mission' },
+  { id: 'd', title: 'Missions Mar 11–18', desc: 'Missions overlapping Mar 11–18, 2026' },
+  { id: 'e', title: 'Unpaid invoices', desc: 'Customers with unpaid invoices' },
+  { id: 'f', title: 'GMC drivers', desc: 'Drivers who drove GMC trucks' },
+  { id: 'g', title: 'Invoices > $1000', desc: 'Customers with invoice total over $1000' },
+  { id: 'h', title: 'Invoice counts', desc: 'Customers and invoice count' },
+  { id: 'i', title: 'High mileage', desc: 'Feb–Mar 2026, km > 7000' },
+  { id: 'j', title: 'Update mission (transaction)', desc: 'Use Edit on Missions' },
+  { id: 'k', title: 'Cancel mission (transaction)', desc: 'Use Cancel on Missions' },
 ];
 
 function renderQueries() {
   $('#content').innerHTML = `
     <div class="query-grid">
       ${QUERIES.map(q => `
-        <div class="query-card" data-qid="${q.id}">
-          <h4><span>${q.id.toUpperCase()}</span> ${q.title}</h4>
-          <p>${q.desc}</p>
-        </div>`).join('')}
+        <button type="button" class="query-card" data-qid="${q.id}">
+          <h4><span>${q.id.toUpperCase()}</span> ${escapeHtml(q.title)}</h4>
+          <p>${escapeHtml(q.desc)}</p>
+        </button>`).join('')}
     </div>
     <div id="query-result"></div>`;
 
@@ -500,49 +675,44 @@ function renderQueries() {
 
 async function runQuery(id) {
   const el = $('#query-result');
-
-  // j and k redirect to missions page
   if (id === 'j') {
-    el.innerHTML = `<div class="card"><p style="padding:12px;">Query J: Update mission details — redirecting to Missions page. Use <strong>Edit</strong> on any mission (uses transaction).</p></div>`;
-    setTimeout(() => navigate('missions'), 1200);
+    el.innerHTML = `<div class="card"><p class="hint">Use <strong>Missions → Edit</strong> (transaction).</p></div>`;
+    setTimeout(() => navigate('missions'), 800);
     return;
   }
   if (id === 'k') {
-    el.innerHTML = `<div class="card"><p style="padding:12px;">Query K: Cancel mission — redirecting to Missions page. Use <strong>Cancel</strong> on any mission (uses transaction).</p></div>`;
-    setTimeout(() => navigate('missions'), 1200);
+    el.innerHTML = `<div class="card"><p class="hint">Use <strong>Missions → Cancel</strong> (transaction).</p></div>`;
+    setTimeout(() => navigate('missions'), 800);
     return;
   }
 
   el.innerHTML = '<div class="card"><p class="empty-state">Loading...</p></div>';
-
   try {
-    const rows = await api.get('/api/queries/' + id);
-    if (!rows.length) {
+    const rows = await apiJson('/api/queries/' + id);
+    if (!Array.isArray(rows) || !rows.length) {
       el.innerHTML = '<div class="card"><p class="empty-state">No results</p></div>';
       return;
     }
     const cols = Object.keys(rows[0]);
     el.innerHTML = `
       <div class="card">
-        <div class="card-header"><h3>Query ${id.toUpperCase()} Results (${rows.length} rows)</h3></div>
+        <div class="card-header"><h3>Query ${id.toUpperCase()} (${rows.length} rows)</h3></div>
         <div class="table-wrap"><table>
-          <thead><tr>${cols.map(c => `<th>${c.replace(/_/g, ' ')}</th>`).join('')}</tr></thead>
+          <thead><tr>${cols.map(c => `<th>${escapeHtml(c.replace(/_/g, ' '))}</th>`).join('')}</tr></thead>
           <tbody>${rows.map(r => `<tr>${cols.map(c => {
             let v = r[c];
-            if (c.includes('date') || c.includes('start') || c.includes('end')) v = fmtDateTime(v);
-            else if (c.includes('amount') || c.includes('cost') || c.includes('total')) v = fmtMoney(v);
+            if (v != null && (c.includes('date') || c.includes('start') || c.includes('end'))) v = fmtDateTime(v);
+            else if (v != null && (c.includes('amount') || c.includes('cost') || c.includes('total'))) v = fmtMoney(v);
             else if (v === null || v === undefined) v = '-';
-            return `<td>${v}</td>`;
+            return `<td>${escapeHtml(String(v))}</td>`;
           }).join('')}</tr>`).join('')}
           </tbody>
         </table></div>
       </div>`;
   } catch (e) {
-    el.innerHTML = `<div class="card"><p class="empty-state" style="color:var(--danger)">Error: ${e.message}</p></div>`;
+    el.innerHTML = `<div class="card"><p class="empty-state err-text">${escapeHtml(e.message)}</p></div>`;
   }
 }
-
-// ========================= ROUTING =========================
 
 const pages = {
   dashboard: { title: 'Dashboard', render: renderDashboard },
@@ -560,9 +730,9 @@ function navigate(page) {
   $('#page-title').textContent = pages[page].title;
   $$('.nav-link').forEach(l => l.classList.toggle('active', l.dataset.page === page));
   pages[page].render();
+  pingHealth();
 }
 
-// Nav clicks
 $$('.nav-link').forEach(link => {
   link.onclick = (e) => {
     e.preventDefault();
@@ -570,5 +740,4 @@ $$('.nav-link').forEach(link => {
   };
 });
 
-// Init
 navigate('dashboard');
